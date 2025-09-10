@@ -186,7 +186,32 @@ GOOGLE_MAPS_API_KEY=your_google_maps_api_key
 OPENROUTE_API_KEY=your_openroute_api_key
 ```
 
-## Testing
+## Production Deployment
+
+### Quick Deploy (Recommended)
+- **Frontend**: Deploy to Vercel (React app in `/frontend` directory)
+- **Backend**: Deploy to Railway (Django API with PostgreSQL)
+- **Configuration**: Use provided environment files (`.env.production`)
+
+### Requirements
+- `requirements.txt` - Python dependencies with production packages
+- `Procfile` - For Railway/Heroku deployment
+- `vercel.json` - Frontend configuration for Vercel
+- Production environment variables configured
+
+### Backend (Railway/Heroku)
+1. Deploy from GitHub repository
+2. Add PostgreSQL database
+3. Set environment variables from `.env.production`
+4. Run: `python manage.py migrate && python manage.py collectstatic`
+
+### Frontend (Vercel)
+1. Import from GitHub, select `/frontend` directory
+2. Framework: Create React App
+3. Set `REACT_APP_API_BASE_URL` to your backend URL
+4. Deploy automatically
+
+### Testing
 
 ### Run Django Tests
 ```bash
