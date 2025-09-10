@@ -61,7 +61,6 @@ frontend/dist/
 Thumbs.db
 
 # Logs
-logs/
 *.log
 
 # Runtime data
