@@ -3,20 +3,31 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from datetime import datetime, date, timedelta
 import json
 import math
+import traceback
 
 from routes.models import Driver, Trip, RouteStop
 from logs.models import ELDLog, DailyLogSheet, HOSViolation
 # from routes.services import RouteCalculatorService, HOSComplianceService  # Removed for simplicity
 # from logs.services import ELDLogGenerator  # Removed for simplicity
 from .serializers import (
-    DriverSerializer, TripSerializer, TripCreateSerializer, 
-    ELDLogSerializer, DailyLogSheetSerializer, HOSViolationSerializer,
-    RouteCalculationSerializer, HOSComplianceSerializer
+    DriverSerializer, TripSerializer, TripCreateSerializer,
+    ELDLogSerializer, DailyLogSheetSerializer, 
+    HOSViolationSerializer, RouteCalculationSerializer
 )
+
+
+@api_view(['GET'])
+def health_check(request):
+    """Simple health check endpoint"""
+    return JsonResponse({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'message': 'TruckLog API is running'
+    })
 
 
 class DriverListCreateView(APIView):
@@ -167,17 +178,6 @@ class TripListCreateView(APIView):
             return Response(
                 {'error': f'Internal server error: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-                current_location_lng=serializer.validated_data['current_location_lng'],
-                pickup_location=serializer.validated_data['pickup_location'],
-                pickup_location_lat=serializer.validated_data['pickup_location_lat'],
-                pickup_location_lng=serializer.validated_data['pickup_location_lng'],
-                dropoff_location=serializer.validated_data['dropoff_location'],
-                dropoff_location_lat=serializer.validated_data['dropoff_location_lat'],
-                dropoff_location_lng=serializer.validated_data['dropoff_location_lng'],
-                current_cycle_used=serializer.validated_data['current_cycle_used'],
-                total_distance=route_result['total_distance'],
-                estimated_duration=route_result['estimated_duration']
             )
             
             # Create route stops
