@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import json
 
 from routes.models import Driver, Trip, RouteStop
@@ -43,40 +43,130 @@ class TripListCreateView(APIView):
         return Response(serializer.data)
     
     def post(self, request):
-        serializer = TripCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            # Calculate route
-            route_service = RouteCalculatorService()
-            route_result = route_service.calculate_route(
-                current_location={
-                    'lat': serializer.validated_data['current_location_lat'],
-                    'lng': serializer.validated_data['current_location_lng'],
-                    'address': serializer.validated_data['current_location']
-                },
-                pickup_location={
-                    'lat': serializer.validated_data['pickup_location_lat'],
-                    'lng': serializer.validated_data['pickup_location_lng'],
-                    'address': serializer.validated_data['pickup_location']
-                },
-                dropoff_location={
-                    'lat': serializer.validated_data['dropoff_location_lat'],
-                    'lng': serializer.validated_data['dropoff_location_lng'],
-                    'address': serializer.validated_data['dropoff_location']
-                }
-            )
-            
-            if not route_result['success']:
-                return Response(
-                    {'error': 'Failed to calculate route: ' + route_result.get('error', 'Unknown error')},
-                    status=status.HTTP_400_BAD_REQUEST
+        try:
+            serializer = TripCreateSerializer(data=request.data)
+            if serializer.is_valid():
+                # Get the driver
+                driver = get_object_or_404(Driver, id=serializer.validated_data['driver_id'])
+                
+                # Calculate simple distance (fallback method)
+                pickup_lat = serializer.validated_data['pickup_location_lat']
+                pickup_lng = serializer.validated_data['pickup_location_lng']
+                dropoff_lat = serializer.validated_data['dropoff_location_lat']
+                dropoff_lng = serializer.validated_data['dropoff_location_lng']
+                
+                # Simple distance calculation using Haversine formula
+                def calculate_distance(lat1, lon1, lat2, lon2):
+                    import math
+                    R = 3959  # Earth radius in miles
+                    dlat = math.radians(lat2 - lat1)
+                    dlon = math.radians(lon2 - lon1)
+                    a = math.sin(dlat/2) * math.sin(dlat/2) + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2) * math.sin(dlon/2)
+                    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+                    return R * c
+                
+                total_distance = calculate_distance(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng)
+                estimated_duration = total_distance / 60  # Assume 60 mph average
+                
+                # Create trip with simple calculation
+                trip = Trip.objects.create(
+                    driver=driver,
+                    current_location=serializer.validated_data['current_location'],
+                    current_location_lat=serializer.validated_data['current_location_lat'],
+                    current_location_lng=serializer.validated_data['current_location_lng'],
+                    pickup_location=serializer.validated_data['pickup_location'],
+                    pickup_location_lat=serializer.validated_data['pickup_location_lat'],
+                    pickup_location_lng=serializer.validated_data['pickup_location_lng'],
+                    dropoff_location=serializer.validated_data['dropoff_location'],
+                    dropoff_location_lat=serializer.validated_data['dropoff_location_lat'],
+                    dropoff_location_lng=serializer.validated_data['dropoff_location_lng'],
+                    current_cycle_used=serializer.validated_data['current_cycle_used'],
+                    total_distance=total_distance,
+                    estimated_duration=estimated_duration,
+                    status='planned'
                 )
-            
-            # Create trip
-            driver = get_object_or_404(Driver, id=serializer.validated_data['driver_id'])
-            trip = Trip.objects.create(
-                driver=driver,
-                current_location=serializer.validated_data['current_location'],
-                current_location_lat=serializer.validated_data['current_location_lat'],
+                
+                # Create basic route stops
+                RouteStop.objects.create(
+                    trip=trip,
+                    stop_order=1,
+                    stop_type='pickup',
+                    location=serializer.validated_data['pickup_location'],
+                    location_lat=pickup_lat,
+                    location_lng=pickup_lng,
+                    estimated_arrival=datetime.now() + timedelta(hours=1),
+                    estimated_departure=datetime.now() + timedelta(hours=2),
+                    duration_minutes=60,
+                    distance_from_previous=0,
+                    cumulative_distance=0
+                )
+                
+                RouteStop.objects.create(
+                    trip=trip,
+                    stop_order=2,
+                    stop_type='dropoff',
+                    location=serializer.validated_data['dropoff_location'],
+                    location_lat=dropoff_lat,
+                    location_lng=dropoff_lng,
+                    estimated_arrival=datetime.now() + timedelta(hours=estimated_duration),
+                    estimated_departure=datetime.now() + timedelta(hours=estimated_duration + 1),
+                    duration_minutes=60,
+                    distance_from_previous=total_distance,
+                    cumulative_distance=total_distance
+                )
+                
+                # Simple HOS compliance check
+                compliance_result = {
+                    'is_compliant': True,
+                    'violations': [],
+                    'warnings': [],
+                    'recommendations': []
+                }
+                
+                # Basic compliance logic
+                if estimated_duration > 11:
+                    compliance_result['is_compliant'] = False
+                    compliance_result['violations'].append({
+                        'type': 'driving_time_exceeded',
+                        'message': 'Estimated driving time exceeds 11-hour limit'
+                    })
+                
+                if serializer.validated_data['current_cycle_used'] + estimated_duration > 70:
+                    compliance_result['warnings'].append({
+                        'type': 'cycle_hours_warning',
+                        'message': 'Trip may approach 70-hour cycle limit'
+                    })
+                
+                # Return response
+                return Response({
+                    'trip': TripSerializer(trip).data,
+                    'route': {
+                        'total_distance': total_distance,
+                        'estimated_duration': estimated_duration,
+                        'stops': [
+                            {
+                                'type': 'pickup',
+                                'location': {'address': trip.pickup_location, 'lat': pickup_lat, 'lng': pickup_lng}
+                            },
+                            {
+                                'type': 'dropoff', 
+                                'location': {'address': trip.dropoff_location, 'lat': dropoff_lat, 'lng': dropoff_lng}
+                            }
+                        ]
+                    },
+                    'compliance': compliance_result
+                }, status=status.HTTP_201_CREATED)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            import traceback
+            print(f"Trip creation error: {str(e)}")
+            print(traceback.format_exc())
+            return Response(
+                {'error': f'Internal server error: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
                 current_location_lng=serializer.validated_data['current_location_lng'],
                 pickup_location=serializer.validated_data['pickup_location'],
                 pickup_location_lat=serializer.validated_data['pickup_location_lat'],
