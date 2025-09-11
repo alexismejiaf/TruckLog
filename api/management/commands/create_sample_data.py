@@ -120,30 +120,33 @@ class Command(BaseCommand):
 
         # Create sample ELD logs
         if trips:
+            from datetime import date, time
             eld_logs_data = [
                 {
                     'trip': trips[0],
                     'driver': drivers[0],
-                    'event_type': 'on_duty',
-                    'start_time': timezone.now() - timedelta(hours=8),
-                    'end_time': timezone.now() - timedelta(hours=7),
-                    'duration_minutes': 60,
+                    'date': date.today(),
+                    'start_time': time(8, 0),
+                    'end_time': time(9, 0),
+                    'duty_status': 'on_duty',
                     'location': 'Los Angeles, CA',
-                    'location_lat': 34.0522,
-                    'location_lng': -118.2437,
-                    'notes': 'Pre-trip inspection'
+                    'odometer_start': 100000,
+                    'odometer_end': 100050,
+                    'hours': 1.0,
+                    'remarks': 'Pre-trip inspection'
                 },
                 {
                     'trip': trips[0],
                     'driver': drivers[0],
-                    'event_type': 'driving',
-                    'start_time': timezone.now() - timedelta(hours=7),
-                    'end_time': timezone.now() - timedelta(hours=2),
-                    'duration_minutes': 300,
+                    'date': date.today(),
+                    'start_time': time(9, 0),
+                    'end_time': time(14, 0),
+                    'duty_status': 'driving',
                     'location': 'En route to Phoenix',
-                    'location_lat': 33.8,
-                    'location_lng': -115.5,
-                    'notes': 'Highway driving'
+                    'odometer_start': 100050,
+                    'odometer_end': 100423,
+                    'hours': 5.0,
+                    'remarks': 'Highway driving'
                 }
             ]
 
@@ -151,11 +154,11 @@ class Command(BaseCommand):
                 log, created = ELDLog.objects.get_or_create(
                     trip=log_data['trip'],
                     driver=log_data['driver'],
-                    event_type=log_data['event_type'],
+                    date=log_data['date'],
                     start_time=log_data['start_time'],
                     defaults=log_data
                 )
                 if created:
-                    self.stdout.write(f'Created ELD log: {log.event_type} for {log.driver.name}')
+                    self.stdout.write(f'Created ELD log: {log.duty_status} for {log.driver.name}')
 
         self.stdout.write(self.style.SUCCESS('Sample data created successfully!'))
