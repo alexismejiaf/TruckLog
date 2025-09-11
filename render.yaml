@@ -1,0 +1,38 @@
+services:
+  # PostgreSQL Database
+  - type: pserv
+    name: trucklog-db
+    env: node
+    plan: free
+    databaseName: trucklog
+    user: trucklog_user
+
+  # Django Backend API
+  - type: web
+    name: trucklog-api
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn trucking_eld.wsgi:application"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DEBUG
+        value: False
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trucklog-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_HOSTS
+        value: "*"
+
+  # React Frontend
+  - type: static
+    name: trucklog-frontend
+    buildCommand: "cd frontend && npm ci && npm run build"
+    staticPublishPath: "frontend/build"
+    envVars:
+      - key: REACT_APP_API_BASE_URL
+        value: "https://trucklog-api.onrender.com/api"
