@@ -162,13 +162,15 @@ REST_FRAMEWORK = {
 }
 
 # CORS settings for React frontend
-CORS_ALLOWED_ORIGINS = os.environ.get(
-    'CORS_ALLOWED_ORIGINS', 
-    'http://localhost:3000,http://127.0.0.1:3000,https://trucklog-frontend.onrender.com'
-).split(',')
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://trucklog-frontend.onrender.com',
+]
 
+# Allow all origins for development/testing (temporary)
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = False
 
 # Additional CORS settings for production
 CORS_ALLOW_HEADERS = [
@@ -181,6 +183,15 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
 ]
 
 # Media files for generated log sheets
