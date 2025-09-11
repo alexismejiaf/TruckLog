@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Get API base URL from environment variables
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://trucklog-api.onrender.com';
 
 // Configure axios instance
 const api = axios.create({
@@ -9,7 +9,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 second timeout for production
+  timeout: 30000, // 30 second timeout for production (Render can be slow)
 });
 
 // Types

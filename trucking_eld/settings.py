@@ -164,10 +164,24 @@ REST_FRAMEWORK = {
 # CORS settings for React frontend
 CORS_ALLOWED_ORIGINS = os.environ.get(
     'CORS_ALLOWED_ORIGINS', 
-    'http://localhost:3000,http://127.0.0.1:3000'
+    'http://localhost:3000,http://127.0.0.1:3000,https://trucklog-frontend.onrender.com'
 ).split(',')
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = False
+
+# Additional CORS settings for production
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # Media files for generated log sheets
 MEDIA_URL = '/media/'
