@@ -2,8 +2,22 @@ import requests
 import math
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
-from geopy.distance import geodesic  # Re-enabled for route calculations
+# from geopy.distance import geodesic  # Temporarily disabled - causes build issues
 from django.conf import settings
+
+
+def calculate_distance(coord1, coord2):
+    """Simple distance calculation using Haversine formula"""
+    lat1, lon1 = coord1
+    lat2, lon2 = coord2
+    
+    # Haversine formula for distance calculation
+    R = 3959  # Earth radius in miles
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2) * math.sin(dlat/2) + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2) * math.sin(dlon/2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return R * c
 
 
 class RouteCalculatorService:
@@ -51,7 +65,7 @@ class RouteCalculatorService:
         segments = []
         
         for i in range(len(waypoints) - 1):
-            distance = geodesic(waypoints[i], waypoints[i + 1]).miles
+            distance = calculate_distance(waypoints[i], waypoints[i + 1])
             total_distance += distance
             
             segments.append({

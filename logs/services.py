@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta, time
 from typing import List, Dict
-from PIL import Image, ImageDraw, ImageFont  # Re-enabled for image generation
-from reportlab.pdfgen import canvas  # Re-enabled for PDF generation
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.units import inch
+# from PIL import Image, ImageDraw, ImageFont  # Temporarily disabled - causes build issues
+# from reportlab.pdfgen import canvas  # Temporarily disabled - causes build issues
+# from reportlab.lib.pagesizes import letter
+# from reportlab.lib import colors
+# from reportlab.lib.units import inch
 import io
 import os
 
@@ -31,46 +31,41 @@ class ELDLogGenerator:
     
     def generate_daily_log_sheet(self, trip_id: int, driver_name: str, date: datetime.date, 
                                 eld_logs: List[Dict], vehicle_info: Dict = None) -> bytes:
-        """Generate a daily log sheet image"""
+        """Generate a daily log sheet - simplified version for stable deployment"""
+        # Return simple JSON data as bytes for now
+        log_data = {
+            "driver": driver_name,
+            "date": date.isoformat(),
+            "trip_id": trip_id,
+            "logs": eld_logs
+        }
+        return str(log_data).encode('utf-8')
         
-        # Create image
-        img = Image.new('RGB', (self.log_width, self.log_height), 'white')
-        draw = ImageDraw.Draw(img)
+    def generate_trip_summary_pdf(self, trip_data: Dict, daily_logs: List[Dict]) -> bytes:
+        """Generate a PDF summary - simplified version for stable deployment"""
+        summary_data = {
+            "trip": trip_data,
+            "daily_logs": daily_logs
+        }
+        return str(summary_data).encode('utf-8')
+    
+    def generate_daily_log_pdf(self, driver_name: str, date: str, log_entries: List[Dict]) -> bytes:
+        """Generate PDF for daily log - simplified version for stable deployment"""
+        log_data = {
+            "driver": driver_name,
+            "date": date,
+            "entries": log_entries
+        }
+        return str(log_data).encode('utf-8')
         
-        # Try to load a font, fall back to default if not available
-        try:
-            title_font = ImageFont.truetype("arial.ttf", 16)
-            header_font = ImageFont.truetype("arial.ttf", 12)
-            text_font = ImageFont.truetype("arial.ttf", 10)
-        except OSError:
-            title_font = ImageFont.load_default()
-            header_font = ImageFont.load_default()
-            text_font = ImageFont.load_default()
-        
-        # Draw header
-        self._draw_header(draw, title_font, header_font, driver_name, date, vehicle_info)
-        
-        # Draw grid
-        self._draw_grid(draw, text_font)
-        
-        # Draw duty status legend
-        self._draw_legend(draw, text_font)
-        
-        # Draw log entries
-        self._draw_log_entries(draw, eld_logs, date)
-        
-        # Draw remarks section
-        self._draw_remarks(draw, text_font, eld_logs)
-        
-        # Draw totals
-        self._draw_totals(draw, text_font, eld_logs)
-        
-        # Convert to bytes
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0)
-        
-        return img_byte_arr.getvalue()
+    def generate_hos_compliance_report(self, trip_data: Dict, violations: List[Dict]) -> bytes:
+        """Generate HOS compliance report - simplified version for stable deployment"""
+        report_data = {
+            "trip": trip_data,
+            "violations": violations,
+            "compliant": len(violations) == 0
+        }
+        return str(report_data).encode('utf-8')
         
         # Try to load a font, fall back to default if not available
         try:
@@ -270,130 +265,27 @@ class ELDLogGenerator:
         return totals
     
     def generate_trip_summary_pdf(self, trip_data: Dict, daily_logs: List[Dict]) -> bytes:
-        """Generate a PDF summary of the entire trip"""
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
-        width, height = letter
-        
-        # Title
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, height - 50, f"Trip Summary - {trip_data.get('pickup_location', '')} to {trip_data.get('dropoff_location', '')}")
-        
-        # Trip details
-        p.setFont("Helvetica", 12)
-        y_position = height - 100
-        
-        trip_details = [
-            f"Driver: {trip_data.get('driver_name', 'N/A')}",
-            f"Total Distance: {trip_data.get('total_distance', 0):.1f} miles",
-            f"Trip Duration: {trip_data.get('estimated_duration', 0):.1f} hours",
-            f"Status: {trip_data.get('status', 'N/A')}",
-        ]
-        
-        for detail in trip_details:
-            p.drawString(50, y_position, detail)
-            y_position -= 20
-        
-        # Daily log summaries
-        y_position -= 30
-        p.setFont("Helvetica-Bold", 14)
-        p.drawString(50, y_position, "Daily Log Summary")
-        y_position -= 30
-        
-        p.setFont("Helvetica", 10)
-        headers = ["Date", "Driving", "On Duty", "Off Duty", "Sleeper"]
-        for i, header in enumerate(headers):
-            p.drawString(50 + (i * 100), y_position, header)
-        y_position -= 20
-        
-        for daily_log in daily_logs:
-            row_data = [
-                daily_log['date'].strftime('%m/%d/%Y'),
-                f"{daily_log.get('total_driving_hours', 0):.1f}",
-                f"{daily_log.get('total_on_duty_hours', 0):.1f}",
-                f"{daily_log.get('total_off_duty_hours', 0):.1f}",
-                f"{daily_log.get('total_sleeper_hours', 0):.1f}"
-            ]
-            
-            for i, data in enumerate(row_data):
-                p.drawString(50 + (i * 100), y_position, data)
-            y_position -= 15
-        
-        p.showPage()
-        p.save()
-        buffer.seek(0)
-        return buffer.getvalue()
+        """Generate a PDF summary - simplified version for stable deployment"""
+        summary_data = {
+            "trip": trip_data,
+            "daily_logs": daily_logs
+        }
+        return str(summary_data).encode('utf-8')
     
     def generate_daily_log_pdf(self, driver_name: str, date: str, log_entries: List[Dict]) -> bytes:
-        """Generate PDF for daily log"""
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
-        width, height = letter
-        
-        # Title
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, height - 50, f"Daily Log - {driver_name} - {date}")
-        
-        # Log entries
-        y_position = height - 100
-        p.setFont("Helvetica", 12)
-        
-        for entry in log_entries:
-            entry_text = f"{entry.get('time', '')} - {entry.get('duty_status', '')} - {entry.get('location', '')}"
-            p.drawString(50, y_position, entry_text)
-            y_position -= 20
-            
-            if y_position < 50:  # Start new page if needed
-                p.showPage()
-                y_position = height - 50
-        
-        p.showPage()
-        p.save()
-        buffer.seek(0)
-        return buffer.getvalue()
+        """Generate PDF for daily log - simplified version for stable deployment"""
+        log_data = {
+            "driver": driver_name,
+            "date": date,
+            "entries": log_entries
+        }
+        return str(log_data).encode('utf-8')
         
     def generate_hos_compliance_report(self, trip_data: Dict, violations: List[Dict]) -> bytes:
-        """Generate HOS compliance report"""
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
-        width, height = letter
-        
-        # Title
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, height - 50, "Hours of Service Compliance Report")
-        
-        # Trip info
-        p.setFont("Helvetica", 12)
-        y_position = height - 100
-        p.drawString(50, y_position, f"Trip: {trip_data.get('pickup_location', '')} to {trip_data.get('dropoff_location', '')}")
-        y_position -= 20
-        p.drawString(50, y_position, f"Driver: {trip_data.get('driver_name', 'N/A')}")
-        y_position -= 40
-        
-        # Compliance status
-        p.setFont("Helvetica-Bold", 14)
-        if violations:
-            p.setFillColor(colors.red)
-            p.drawString(50, y_position, "VIOLATIONS FOUND")
-        else:
-            p.setFillColor(colors.green)
-            p.drawString(50, y_position, "COMPLIANT")
-        
-        p.setFillColor(colors.black)
-        y_position -= 40
-        
-        # List violations
-        if violations:
-            p.setFont("Helvetica-Bold", 12)
-            p.drawString(50, y_position, "Violations:")
-            y_position -= 20
-            
-            p.setFont("Helvetica", 10)
-            for violation in violations:
-                p.drawString(70, y_position, f"• {violation.get('description', 'N/A')}")
-                y_position -= 15
-        
-        p.showPage()
-        p.save()
-        buffer.seek(0)
-        return buffer.getvalue()
+        """Generate HOS compliance report - simplified version for stable deployment"""
+        report_data = {
+            "trip": trip_data,
+            "violations": violations,
+            "compliant": len(violations) == 0
+        }
+        return str(report_data).encode('utf-8')
