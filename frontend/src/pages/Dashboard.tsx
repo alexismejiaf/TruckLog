@@ -22,7 +22,7 @@ import {
   Visibility,
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
-import { apiService, Trip as ApiTrip } from '../services/api';
+import { apiService } from '../services/api';
 
 interface Trip {
   id: number;

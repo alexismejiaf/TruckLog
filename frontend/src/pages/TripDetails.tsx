@@ -182,8 +182,16 @@ const TripDetails: React.FC = () => {
         setEldLogs([]);
       }
 
-      // Set progress based on current time vs trip duration
-      setProgress(65); // 65% progress for demo
+      // Set progress based on trip status
+      if (trip && trip.status === 'planned') {
+        setProgress(0); // No progress for planned trips
+      } else if (trip && trip.status === 'in_progress') {
+        setProgress(65); // 65% progress for in-progress trips
+      } else if (trip && trip.status === 'completed') {
+        setProgress(100); // 100% for completed trips
+      } else {
+        setProgress(0); // Default to 0 for other statuses
+      }
       setActiveStep(3); // Currently at step 3 of 6
     } catch (err) {
       setError('Failed to load trip details');
@@ -361,12 +369,15 @@ Driver Certification: I hereby certify that my data entries are true and correct
             
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" sx={{ mb: 1 }}>
-                Trip Progress: {progress}%
+                {trip.status === 'planned' ? 'Trip Status: Ready to start' : 
+                 trip.status === 'completed' ? 'Trip Status: Completed' :
+                 `Trip Progress: ${progress}%`}
               </Typography>
               <LinearProgress 
                 variant="determinate" 
                 value={progress} 
                 sx={{ height: 8, borderRadius: 4 }}
+                color={trip.status === 'planned' ? 'secondary' : 'primary'}
               />
             </Box>
           </Box>
@@ -379,23 +390,39 @@ Driver Certification: I hereby certify that my data entries are true and correct
           <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
             <Box sx={{ flex: 1, textAlign: 'center', p: 2, bgcolor: 'primary.light', borderRadius: 2 }}>
               <Speed sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-              <Typography variant="h6" color="primary.main">65 mph</Typography>
+              <Typography variant="h6" color="primary.main">
+                {trip.status === 'in_progress' ? '65 mph' : '0 mph'}
+              </Typography>
               <Typography variant="body2">Current Speed</Typography>
             </Box>
             <Box sx={{ flex: 1, textAlign: 'center', p: 2, bgcolor: 'success.light', borderRadius: 2 }}>
               <LocalGasStation sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
-              <Typography variant="h6" color="success.main">7.2 mpg</Typography>
+              <Typography variant="h6" color="success.main">
+                {trip.status === 'in_progress' ? '7.2 mpg' : '-- mpg'}
+              </Typography>
               <Typography variant="body2">Fuel Economy</Typography>
             </Box>
             <Box sx={{ flex: 1, textAlign: 'center', p: 2, bgcolor: 'info.light', borderRadius: 2 }}>
               <Schedule sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
-              <Typography variant="h6" color="info.main">3.2 hrs</Typography>
-              <Typography variant="body2">ETA to Next Stop</Typography>
+              <Typography variant="h6" color="info.main">
+                {trip.status === 'in_progress' 
+                  ? `${((100 - progress) / 100 * trip.estimated_duration).toFixed(1)} hrs`
+                  : `${trip.estimated_duration} hrs`
+                }
+              </Typography>
+              <Typography variant="body2">
+                {trip.status === 'in_progress' ? 'ETA to Destination' : 'Estimated Duration'}
+              </Typography>
             </Box>
             <Box sx={{ flex: 1, textAlign: 'center', p: 2, bgcolor: 'warning.light', borderRadius: 2 }}>
               <LocationOn sx={{ fontSize: 40, color: 'warning.main', mb: 1 }} />
-              <Typography variant="h6" color="warning.main">I-40 E</Typography>
-              <Typography variant="body2">Current Highway</Typography>
+              <Typography variant="h6" color="warning.main">
+                {trip.status === 'in_progress' 
+                  ? (trip.route_stops.find(stop => stop.stop_type === 'Rest')?.address.split(',')[0] || 'Highway')
+                  : trip.origin.split(',')[0]
+                }
+              </Typography>
+              <Typography variant="body2">Current Location</Typography>
             </Box>
           </Box>
         </CardContent>
@@ -426,44 +453,58 @@ Driver Certification: I hereby certify that my data entries are true and correct
             </Typography>
             <Typography variant="body1" sx={{ mb: 3, maxWidth: 500, textAlign: 'center' }}>
               🗺️ <strong>Real-time GPS Map Integration</strong><br/>
-              📍 Current Location: Harrisburg, PA (Mile Marker 247)<br/>
-              🛣️ Route: I-80 W → I-76 W → I-40 W → I-15 S<br/>
-              ⛽ Next Fuel Stop: Nashville, TN (245 miles)<br/>
-              🚛 Vehicle Speed: 65 mph | Fuel: 7.2 mpg<br/>
+              📍 Current Location: {trip.status === 'in_progress' ? 'En route to destination' : trip.origin}<br/>
+              🛣️ Route: {trip.origin} → {trip.destination}<br/>
+              ⛽ Next Fuel Stop: {trip.route_stops.find(stop => stop.stop_type === 'Fuel')?.address || 'No fuel stops planned'}<br/>
+              🚛 Vehicle Speed: {trip.status === 'in_progress' ? '65 mph' : 'Parked'} | Fuel: {trip.status === 'in_progress' ? '7.2 mpg' : '-- mpg'}<br/>
             </Typography>
             
-            {/* Mock route progress */}
+            {/* Dynamic route progress */}
             <Box sx={{ width: '80%', mb: 2 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="body2" color="primary">Brooklyn, NY</Typography>
-                <Typography variant="body2" color="warning.main">Current: Harrisburg, PA</Typography>
-                <Typography variant="body2" color="error.main">Los Angeles, CA</Typography>
+                <Typography variant="body2" color="primary">{trip.origin}</Typography>
+                <Typography variant="body2" color="warning.main">
+                  Current: {trip.status === 'in_progress' ? 'En route' : trip.origin}
+                </Typography>
+                <Typography variant="body2" color="error.main">{trip.destination}</Typography>
               </Box>
               <LinearProgress 
                 variant="determinate" 
-                value={25} 
+                value={progress} 
                 sx={{ height: 8, borderRadius: 4 }}
               />
               <Typography variant="caption" sx={{ mt: 1, display: 'block', textAlign: 'center' }}>
-                25% Complete • 2,090 miles remaining • ETA: Sept 11, 11:30 PM
+                {trip.status === 'planned' 
+                  ? `Trip ready to start • ${trip.total_distance} miles total • Estimated duration: ${trip.estimated_duration} hours`
+                  : trip.status === 'completed' 
+                  ? `Trip completed • ${trip.total_distance} miles • Finished on: ${format(new Date(trip.estimated_arrival), 'MMM dd, h:mm a')}`
+                  : `${progress}% Complete • ${((100 - progress) / 100 * trip.total_distance).toFixed(0)} miles remaining • ETA: ${format(new Date(trip.estimated_arrival), 'MMM dd, h:mm a')}`
+                }
               </Typography>
             </Box>
             
             {/* Route waypoints */}
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
-              {trip.route_stops.map((stop, index) => (
-                <Chip
-                  key={stop.id}
-                  label={stop.address.split(' - ')[0]}
-                  color={
-                    index <= 1 ? 'success' : 
-                    index === 2 ? 'warning' : 'default'
-                  }
-                  size="small"
-                  icon={<LocationOn />}
-                  variant={index <= 1 ? 'filled' : 'outlined'}
-                />
-              ))}
+              {trip.route_stops.map((stop, index) => {
+                // Determine if stop is completed based on trip progress and stop order
+                const isCompleted = trip.status === 'in_progress' && index < Math.floor(trip.route_stops.length * progress / 100);
+                const isCurrent = trip.status === 'in_progress' && index === Math.floor(trip.route_stops.length * progress / 100);
+                
+                return (
+                  <Chip
+                    key={stop.id}
+                    label={stop.address.split(' - ')[0]}
+                    color={
+                      isCompleted ? 'success' : 
+                      isCurrent ? 'warning' : 
+                      trip.status === 'completed' ? 'success' : 'default'
+                    }
+                    size="small"
+                    icon={<LocationOn />}
+                    variant={isCompleted || (trip.status === 'completed') ? 'filled' : 'outlined'}
+                  />
+                );
+              })}
             </Box>
           </Box>
         </CardContent>

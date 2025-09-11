@@ -118,74 +118,123 @@ const TripPlanner: React.FC = () => {
           dropoff_location_lng: dropoffCoords.longitude,
         });
         
-        // Calculate real route from pickup to dropoff
-        const route = await getOptimizedRoute(
+        // Calculate complete route: Current Location → Pickup → Dropoff
+        const fullRoute = await getOptimizedRoute(
+          tripData.current_location!,
           tripData.pickup_location!,
-          tripData.dropoff_location!,
           new Date()
         );
         
-        if (route) {
+        const deliveryRoute = await getOptimizedRoute(
+          tripData.pickup_location!,
+          tripData.dropoff_location!,
+          new Date(Date.now() + (fullRoute?.duration || 8) * 60 * 60 * 1000) // Start delivery after reaching pickup
+        );
+        
+        if (fullRoute && deliveryRoute) {
+          // Combine both route segments
+          const totalDistance = fullRoute.distance + deliveryRoute.distance;
+          const totalDuration = fullRoute.duration + deliveryRoute.duration + 1; // +1 hour for loading time
+          
           setRouteData({
-            total_distance: route.distance,
-            estimated_duration: route.duration,
+            total_distance: totalDistance,
+            estimated_duration: totalDuration,
             route_stops: [
+              // Start at current location
               {
                 id: 1,
-                address: tripData.pickup_location,
-                latitude: pickupCoords.latitude,
-                longitude: pickupCoords.longitude,
+                address: tripData.current_location,
+                latitude: currentCoords.latitude,
+                longitude: currentCoords.longitude,
                 estimated_arrival: new Date().toISOString(),
                 stop_type: 'Start',
                 stop_order: 1
               },
-              ...route.fuelStops.map((stop, index) => ({
+              // Fuel/rest stops to pickup location
+              ...fullRoute.fuelStops.map((stop, index) => ({
                 ...stop,
-                id: index + 2,
-                stop_order: index + 2
+                id: index + 10,
+                stop_order: index + 2,
+                estimated_arrival: new Date(Date.now() + (index + 1) * 2 * 60 * 60 * 1000).toISOString()
               })),
-              ...route.restStops.map((stop, index) => ({
+              ...fullRoute.restStops.map((stop, index) => ({
                 ...stop,
-                id: index + 100,
-                stop_order: route.fuelStops.length + index + 2
+                id: index + 20,
+                stop_order: fullRoute.fuelStops.length + index + 2,
+                estimated_arrival: new Date(Date.now() + (fullRoute.fuelStops.length + index + 1) * 2 * 60 * 60 * 1000).toISOString()
               })),
+              // Pickup location
+              {
+                id: 100,
+                address: tripData.pickup_location,
+                latitude: pickupCoords.latitude,
+                longitude: pickupCoords.longitude,
+                estimated_arrival: new Date(Date.now() + fullRoute.duration * 60 * 60 * 1000).toISOString(),
+                stop_type: 'Pickup',
+                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + 2
+              },
+              // Fuel/rest stops from pickup to dropoff
+              ...deliveryRoute.fuelStops.map((stop, index) => ({
+                ...stop,
+                id: index + 30,
+                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + index + 3,
+                estimated_arrival: new Date(Date.now() + (fullRoute.duration + 1 + (index + 1) * 2) * 60 * 60 * 1000).toISOString()
+              })),
+              ...deliveryRoute.restStops.map((stop, index) => ({
+                ...stop,
+                id: index + 40,
+                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + deliveryRoute.fuelStops.length + index + 3,
+                estimated_arrival: new Date(Date.now() + (fullRoute.duration + 1 + deliveryRoute.fuelStops.length + index + 1) * 2 * 60 * 60 * 1000).toISOString()
+              })),
+              // Final dropoff
               {
                 id: 999,
                 address: tripData.dropoff_location,
                 latitude: dropoffCoords.latitude,
                 longitude: dropoffCoords.longitude,
-                estimated_arrival: new Date(Date.now() + route.duration * 60 * 60 * 1000).toISOString(),
+                estimated_arrival: new Date(Date.now() + totalDuration * 60 * 60 * 1000).toISOString(),
                 stop_type: 'Dropoff',
-                stop_order: route.fuelStops.length + route.restStops.length + 2
+                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + deliveryRoute.fuelStops.length + deliveryRoute.restStops.length + 3
               }
             ].sort((a, b) => a.stop_order - b.stop_order)
           });
         } else {
-          // Fallback to basic calculation
-          const distance = Math.round(Math.random() * 1000 + 200); // Mock distance
-          const duration = Math.round(distance / 58 * 10) / 10; // 58 mph average
+          // Fallback to basic calculation for complete route
+          const distanceToPick = Math.round(Math.random() * 500 + 200); // Current to pickup
+          const distanceToDeliver = Math.round(Math.random() * 800 + 300); // Pickup to dropoff
+          const totalDistance = distanceToPick + distanceToDeliver;
+          const totalDuration = Math.round(totalDistance / 58 * 10) / 10 + 1; // +1 hour for loading
           
           setRouteData({
-            total_distance: distance,
-            estimated_duration: duration,
+            total_distance: totalDistance,
+            estimated_duration: totalDuration,
             route_stops: [
               {
                 id: 1,
-                address: tripData.pickup_location,
-                latitude: pickupCoords.latitude,
-                longitude: pickupCoords.longitude,
+                address: tripData.current_location,
+                latitude: currentCoords.latitude,
+                longitude: currentCoords.longitude,
                 estimated_arrival: new Date().toISOString(),
                 stop_type: 'Start',
                 stop_order: 1
               },
               {
                 id: 2,
+                address: tripData.pickup_location,
+                latitude: pickupCoords.latitude,
+                longitude: pickupCoords.longitude,
+                estimated_arrival: new Date(Date.now() + (distanceToPick / 58) * 60 * 60 * 1000).toISOString(),
+                stop_type: 'Pickup',
+                stop_order: 2
+              },
+              {
+                id: 3,
                 address: tripData.dropoff_location,
                 latitude: dropoffCoords.latitude,
                 longitude: dropoffCoords.longitude,
-                estimated_arrival: new Date(Date.now() + duration * 60 * 60 * 1000).toISOString(),
+                estimated_arrival: new Date(Date.now() + totalDuration * 60 * 60 * 1000).toISOString(),
                 stop_type: 'Dropoff',
-                stop_order: 2
+                stop_order: 3
               }
             ]
           });

@@ -11,3 +11,179 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Modern utility classes for the application */
+.modern-container {
+  min-height: 100vh;
+  background-color: #f8fafc;
+  padding: 1.5rem;
+}
+
+.modern-content {
+  max-width: 112rem;
+  margin: 0 auto;
+}
+
+.modern-card {
+  background: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  padding: 1.5rem;
+  border: 1px solid #e5e7eb;
+  transition: box-shadow 0.3s ease;
+}
+
+.modern-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.modern-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 768px) {
+  .modern-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .modern-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.modern-stat-icon {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modern-stat-icon.blue {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.modern-stat-icon.green {
+  background-color: #d1fae5;
+  color: #059669;
+}
+
+.modern-stat-icon.orange {
+  background-color: #fed7aa;
+  color: #ea580c;
+}
+
+.modern-stat-icon.indigo {
+  background-color: #e0e7ff;
+  color: #4f46e5;
+}
+
+.modern-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.modern-button.primary {
+  background-color: #2563eb;
+  color: white;
+}
+
+.modern-button.primary:hover {
+  background-color: #1d4ed8;
+  color: white;
+}
+
+.modern-button.secondary {
+  background-color: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.modern-button.secondary:hover {
+  background-color: #f9fafb;
+  color: #374151;
+}
+
+.modern-navbar {
+  background: white;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.modern-navbar-content {
+  max-width: 112rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.modern-navbar-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 4rem;
+}
+
+.modern-nav-link {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.modern-nav-link.active {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.modern-nav-link:not(.active) {
+  color: #6b7280;
+}
+
+.modern-nav-link:not(.active):hover {
+  color: #111827;
+  background-color: #f3f4f6;
+}
+
+.modern-status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.modern-status-badge.in-progress {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.modern-status-badge.planned {
+  background-color: #e0e7ff;
+  color: #6366f1;
+}
+
+.modern-status-badge.completed {
+  background-color: #d1fae5;
+  color: #059669;
+}
+
+.modern-status-badge.cancelled {
+  background-color: #fee2e2;
+  color: #dc2626;
+}

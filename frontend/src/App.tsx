@@ -99,6 +99,7 @@ function App() {
           <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/plan-trip" element={<TripPlanner />} />
               <Route path="/trip/:tripId" element={<TripDetails />} />
               <Route path="/eld-logs" element={<ELDLogs />} />
