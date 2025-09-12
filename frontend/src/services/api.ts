@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { geocodeAddress as nomitimGeocode } from './routeCalculationService';
 
 // Get API base URL from environment variables
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://trucklog-api.onrender.com';
@@ -69,25 +70,6 @@ export interface TripCreateData {
   dropoff_location: string;
   dropoff_location_lat: number;
   dropoff_location_lng: number;
-  current_cycle_used: number;
-}
-
-export interface RouteCalculation {
-  current_location: {
-    lat: number;
-    lng: number;
-    address: string;
-  };
-  pickup_location: {
-    lat: number;
-    lng: number;
-    address: string;
-  };
-  dropoff_location: {
-    lat: number;
-    lng: number;
-    address: string;
-  };
   current_cycle_used: number;
 }
 
@@ -183,12 +165,6 @@ class ApiService {
     return response.data;
   }
 
-  // Route calculation
-  async calculateRoute(routeData: RouteCalculation): Promise<any> {
-    const response = await api.post('/calculate-route/', routeData);
-    return response.data;
-  }
-
   // ELD Log methods
   async getELDLogs(filters?: {
     trip_id?: number;
@@ -245,36 +221,19 @@ class ApiService {
     return response.data;
   }
 
-  // Geocoding helper method
+  // Geocoding helper method - uses the same free Nominatim API as routeCalculationService
   async geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-    // For now, return mock coordinates based on common addresses
-    // In a real app, you would use Google Maps Geocoding API
-    const mockCoordinates: { [key: string]: { lat: number; lng: number } } = {
-      'Phoenix, AZ': { lat: 33.4484, lng: -112.0740 },
-      'Denver, CO': { lat: 39.7392, lng: -104.9903 },
-      'Chicago, IL': { lat: 41.8781, lng: -87.6298 },
-      'Los Angeles, CA': { lat: 34.0522, lng: -118.2437 },
-      'New York, NY': { lat: 40.7128, lng: -74.0060 },
-      'Miami, FL': { lat: 25.7617, lng: -80.1918 },
-      'Seattle, WA': { lat: 47.6062, lng: -122.3321 },
-      'Dallas, TX': { lat: 32.7767, lng: -96.7970 },
-    };
-
-    // Try to find exact match first
-    if (mockCoordinates[address]) {
-      return mockCoordinates[address];
-    }
-
-    // Try partial matching for state/city combinations
-    for (const [key, coords] of Object.entries(mockCoordinates)) {
-      if (address.toLowerCase().includes(key.toLowerCase()) || 
-          key.toLowerCase().includes(address.toLowerCase())) {
-        return coords;
+    try {
+      const result = await nomitimGeocode(address);
+      if (result) {
+        return { lat: result.latitude, lng: result.longitude };
       }
+      return null;
+    } catch (error) {
+      console.error('Geocoding error in API service:', error);
+      // Fallback to a default location if geocoding fails
+      return { lat: 33.4484, lng: -112.0740 }; // Phoenix, AZ
     }
-
-    // Default to Phoenix if no match found
-    return { lat: 33.4484, lng: -112.0740 };
   }
 }
 

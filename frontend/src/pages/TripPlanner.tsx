@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Container,
   Card,
@@ -25,10 +25,16 @@ import {
   Warning,
   CheckCircle,
   Navigation,
+  LocalGasStation,
+  Hotel,
+  Schedule,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { apiService, Driver as ApiDriver, TripCreateData } from '../services/api';
-import { calculateRoute as calculateRealRoute, geocodeAddress, getOptimizedRoute } from '../services/routeCalculationService';
+import { geocodeAddress, getOptimizedRoute } from '../services/routeCalculationService';
+
+// Types
+type Driver = ApiDriver;
 
 interface TripData {
   driver_id: number;
@@ -44,10 +50,70 @@ interface TripData {
   current_cycle_used: number;
 }
 
-interface Driver {
+interface RouteData {
+  total_distance: number;
+  estimated_duration: number;
+  route_stops: RouteStop[];
+  fuelStops: FuelStop[];
+  restStops: RestStop[];
+  distance?: number;
+  duration?: number;
+}
+
+interface RouteStop {
   id: number;
-  name: string;
-  license_number: string;
+  address?: string;
+  location?: string;
+  latitude?: number;
+  longitude?: number;
+  location_lat?: number;
+  location_lng?: number;
+  estimated_arrival: string;
+  stop_type: string;
+  stop_order: number;
+}
+
+interface FuelStop {
+  id: number;
+  location: string;
+  latitude: number;
+  longitude: number;
+  estimated_arrival: string;
+  fuel_needed: number;
+  cost_estimate: number;
+  stop_order: number;
+  station_name?: string;
+}
+
+interface RestStop {
+  id: number;
+  location: string;
+  latitude: number;
+  longitude: number;
+  estimated_arrival: string;
+  break_duration: number; // in hours
+  break_type: 'mandatory_rest' | 'sleeper_berth' | 'off_duty';
+  stop_order: number;
+  facility_type?: string;
+}
+
+interface ComplianceData {
+  compliant: boolean;
+  violations: Array<{
+    type: string;
+    severity: string;
+    description: string;
+  }>;
+  warnings: Array<{
+    type: string;
+    severity: string;
+    description: string;
+  }>;
+  trip_analysis: {
+    total_driving_hours: number;
+    total_duty_hours: number;
+    cycle_hours_needed: number;
+  };
 }
 
 const steps = ['Trip Details', 'Route Review', 'HOS Compliance'];
@@ -59,216 +125,182 @@ const TripPlanner: React.FC = () => {
     current_cycle_used: 0,
   });
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [routeData, setRouteData] = useState<any>(null);
+  const [routeData, setRouteData] = useState<RouteData | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [complianceData, setComplianceData] = useState<any>(null);
+  const [complianceData, setComplianceData] = useState<ComplianceData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [driversLoading, setDriversLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDrivers();
+  // Memoized validation
+  const isStep0Valid = useMemo(() => {
+    return !!(
+      tripData.driver_id &&
+      tripData.current_location &&
+      tripData.pickup_location &&
+      tripData.dropoff_location
+    );
+  }, [tripData]);
+
+  // Calculate fuel stops based on distance and fuel efficiency
+  const calculateFuelStops = useCallback((totalDistance: number, routeStops: RouteStop[]) => {
+    const fuelStops: FuelStop[] = [];
+    const TRUCK_FUEL_EFFICIENCY = 6.5; // miles per gallon
+    const FUEL_TANK_CAPACITY = 200; // gallons
+    const FUEL_RANGE = FUEL_TANK_CAPACITY * TRUCK_FUEL_EFFICIENCY; // ~1300 miles
+    const FUEL_SAFETY_MARGIN = 0.8; // Refuel when 20% remaining
+    const EFFECTIVE_RANGE = FUEL_RANGE * FUEL_SAFETY_MARGIN; // ~1040 miles
+    
+    if (totalDistance > EFFECTIVE_RANGE) {
+      const numFuelStops = Math.ceil(totalDistance / EFFECTIVE_RANGE) - 1;
+      
+      for (let i = 1; i <= numFuelStops; i++) {
+        const stopDistance = (EFFECTIVE_RANGE * i);
+        const progressRatio = stopDistance / totalDistance;
+        
+        // Estimate location between route points
+        const stopIndex = Math.floor(progressRatio * (routeStops.length - 1));
+        const baseStop = routeStops[Math.min(stopIndex, routeStops.length - 1)];
+        
+        // Calculate estimated arrival time
+        const hoursToStop = stopDistance / 55; // Average speed 55 mph
+        const arrivalTime = new Date(Date.now() + hoursToStop * 60 * 60 * 1000);
+        
+        fuelStops.push({
+          id: 1000 + i,
+          location: `Fuel Stop ${i} near ${baseStop.location}`,
+          latitude: baseStop.latitude! + (Math.random() - 0.5) * 0.1,
+          longitude: baseStop.longitude! + (Math.random() - 0.5) * 0.1,
+          estimated_arrival: arrivalTime.toISOString(),
+          fuel_needed: FUEL_TANK_CAPACITY * 0.8, // Fill to 80%
+          cost_estimate: FUEL_TANK_CAPACITY * 0.8 * 3.85, // $3.85/gallon average
+          stop_order: stopIndex + 10,
+          station_name: `Flying J / Pilot Travel Center`
+        });
+      }
+    }
+    
+    return fuelStops;
   }, []);
 
-  const fetchDrivers = async () => {
+  // Calculate mandatory rest stops based on HOS regulations for property-carrying drivers
+  const calculateRestStops = useCallback((totalDuration: number, routeStops: RouteStop[]) => {
+    const restStops: RestStop[] = [];
+    
+    // HOS regulations for property-carrying drivers (70-hour/8-day cycle)
+    const MAX_DRIVING_HOURS_DAILY = 11; // Cannot drive more than 11 hours
+    const MAX_ON_DUTY_HOURS_DAILY = 14; // Cannot be on duty more than 14 hours  
+    const MANDATORY_BREAK_AFTER_8_HRS = 0.5; // 30-minute break after 8 hours of driving
+    const MANDATORY_OFF_DUTY_HOURS = 10; // Must have 10 consecutive hours off duty
+    const MAX_CYCLE_HOURS = 70; // Cannot drive after 70 hours on duty in 8 days
+    
+    // Check if driver's current cycle hours would exceed limit
+    const currentCycleUsed = tripData.current_cycle_used || 0;
+    const projectedCycleHours = currentCycleUsed + totalDuration;
+    
+    // Add 30-minute break after 8 hours of driving (required by HOS)
+    if (totalDuration > 8) {
+      const breakTime = 8; // After 8 hours of driving
+      const progressRatio = breakTime / totalDuration;
+      
+      // Find appropriate location for 30-min break
+      const stopIndex = Math.floor(progressRatio * (routeStops.length - 1));
+      const baseStop = routeStops[Math.min(stopIndex, routeStops.length - 1)];
+      
+      const arrivalTime = new Date(Date.now() + breakTime * 60 * 60 * 1000);
+      
+      restStops.push({
+        id: 3000,
+        location: `30-min Break near ${baseStop.location}`,
+        latitude: baseStop.latitude! + (Math.random() - 0.5) * 0.02,
+        longitude: baseStop.longitude! + (Math.random() - 0.5) * 0.02,
+        estimated_arrival: arrivalTime.toISOString(),
+        break_duration: MANDATORY_BREAK_AFTER_8_HRS,
+        break_type: 'mandatory_rest',
+        stop_order: stopIndex + 15,
+        facility_type: 'Rest Area or Truck Stop (30-min break)'
+      });
+    }
+    
+    // Add 10-hour sleeper berth breaks for trips exceeding daily driving limits
+    if (totalDuration > MAX_DRIVING_HOURS_DAILY) {
+      const numRestStops = Math.ceil(totalDuration / MAX_DRIVING_HOURS_DAILY) - 1;
+      
+      for (let i = 1; i <= numRestStops; i++) {
+        const breakTime = MAX_DRIVING_HOURS_DAILY * i;
+        const progressRatio = breakTime / totalDuration;
+        
+        // Find appropriate location for rest stop
+        const stopIndex = Math.floor(progressRatio * (routeStops.length - 1));
+        const baseStop = routeStops[Math.min(stopIndex, routeStops.length - 1)];
+        
+        // Calculate arrival time for mandatory break
+        const arrivalTime = new Date(Date.now() + breakTime * 60 * 60 * 1000);
+        
+        restStops.push({
+          id: 2000 + i,
+          location: `10-Hour Rest - Rest Area ${i} near ${baseStop.location}`,
+          latitude: baseStop.latitude! + (Math.random() - 0.5) * 0.05,
+          longitude: baseStop.longitude! + (Math.random() - 0.5) * 0.05,
+          estimated_arrival: arrivalTime.toISOString(),
+          break_duration: MANDATORY_OFF_DUTY_HOURS,
+          break_type: totalDuration > MAX_ON_DUTY_HOURS_DAILY ? 'sleeper_berth' : 'off_duty',
+          stop_order: stopIndex + 20,
+          facility_type: totalDuration > MAX_ON_DUTY_HOURS_DAILY ? 'Truck Stop with Sleeper Parking' : 'Rest Area'
+        });
+      }
+    }
+    
+    // Add 34-hour restart warning/requirement if approaching 70-hour cycle limit
+    if (projectedCycleHours > 65) { // Warning at 65 hours, mandatory at 70
+      const cycleRestartTime = new Date(Date.now() + totalDuration * 60 * 60 * 1000);
+      const finalStop = routeStops[routeStops.length - 1];
+      
+      restStops.push({
+        id: 4000,
+        location: `34-Hour Restart Required near ${finalStop.location}`,
+        latitude: finalStop.latitude! + (Math.random() - 0.5) * 0.01,
+        longitude: finalStop.longitude! + (Math.random() - 0.5) * 0.01,
+        estimated_arrival: cycleRestartTime.toISOString(),
+        break_duration: 34,
+        break_type: 'off_duty',
+        stop_order: 999,
+        facility_type: `34-Hour Restart Facility (Cycle Reset) - Current: ${currentCycleUsed}h + Trip: ${totalDuration.toFixed(1)}h = ${projectedCycleHours.toFixed(1)}h of 70h limit`
+      });
+    }
+    
+    return restStops;
+  }, [tripData.current_cycle_used]);
+
+  // Fetch drivers with error handling
+  const fetchDrivers = useCallback(async () => {
     try {
+      setDriversLoading(true);
+      setError(null);
       const driversData = await apiService.getDrivers();
       setDrivers(driversData);
     } catch (error) {
       console.error('Failed to fetch drivers:', error);
-      // Use mock data as fallback
+      setError('Failed to load drivers. Using fallback data.');
+      // Use mock data as fallback with proper API structure
       setDrivers([
-        { id: 1, name: 'John Smith', license_number: 'CDL123456' },
-        { id: 2, name: 'Sarah Johnson', license_number: 'CDL789012' },
-        { id: 3, name: 'Mike Williams', license_number: 'CDL345678' },
+        { id: 1, name: 'John Smith', license_number: 'CDL123456', created_at: new Date().toISOString() },
+        { id: 2, name: 'Sarah Johnson', license_number: 'CDL789012', created_at: new Date().toISOString() },
+        { id: 3, name: 'Mike Williams', license_number: 'CDL345678', created_at: new Date().toISOString() },
       ]);
+    } finally {
+      setDriversLoading(false);
     }
-  };
+  }, []);
 
-  const handleNext = async () => {
-    if (activeStep === 0) {
-      // Validate trip details
-      if (!tripData.driver_id || !tripData.current_location || !tripData.pickup_location || !tripData.dropoff_location) {
-        setError('Please fill in all required fields');
-        return;
-      }
-      
-      setLoading(true);
-      setRouteLoading(true);
-      try {
-        // Geocode addresses using our new service
-        const currentCoords = await geocodeAddress(tripData.current_location!);
-        const pickupCoords = await geocodeAddress(tripData.pickup_location!);
-        const dropoffCoords = await geocodeAddress(tripData.dropoff_location!);
-        
-        if (!currentCoords || !pickupCoords || !dropoffCoords) {
-          setError('Failed to geocode one or more addresses. Please check the addresses and try again.');
-          setLoading(false);
-          setRouteLoading(false);
-          return;
-        }
-        
-        // Update trip data with coordinates
-        setTripData({
-          ...tripData,
-          current_location_lat: currentCoords.latitude,
-          current_location_lng: currentCoords.longitude,
-          pickup_location_lat: pickupCoords.latitude,
-          pickup_location_lng: pickupCoords.longitude,
-          dropoff_location_lat: dropoffCoords.latitude,
-          dropoff_location_lng: dropoffCoords.longitude,
-        });
-        
-        // Calculate complete route: Current Location → Pickup → Dropoff
-        const fullRoute = await getOptimizedRoute(
-          tripData.current_location!,
-          tripData.pickup_location!,
-          new Date()
-        );
-        
-        const deliveryRoute = await getOptimizedRoute(
-          tripData.pickup_location!,
-          tripData.dropoff_location!,
-          new Date(Date.now() + (fullRoute?.duration || 8) * 60 * 60 * 1000) // Start delivery after reaching pickup
-        );
-        
-        if (fullRoute && deliveryRoute) {
-          // Combine both route segments
-          const totalDistance = fullRoute.distance + deliveryRoute.distance;
-          const totalDuration = fullRoute.duration + deliveryRoute.duration + 1; // +1 hour for loading time
-          
-          setRouteData({
-            total_distance: totalDistance,
-            estimated_duration: totalDuration,
-            route_stops: [
-              // Start at current location
-              {
-                id: 1,
-                address: tripData.current_location,
-                latitude: currentCoords.latitude,
-                longitude: currentCoords.longitude,
-                estimated_arrival: new Date().toISOString(),
-                stop_type: 'Start',
-                stop_order: 1
-              },
-              // Fuel/rest stops to pickup location
-              ...fullRoute.fuelStops.map((stop, index) => ({
-                ...stop,
-                id: index + 10,
-                stop_order: index + 2,
-                estimated_arrival: new Date(Date.now() + (index + 1) * 2 * 60 * 60 * 1000).toISOString()
-              })),
-              ...fullRoute.restStops.map((stop, index) => ({
-                ...stop,
-                id: index + 20,
-                stop_order: fullRoute.fuelStops.length + index + 2,
-                estimated_arrival: new Date(Date.now() + (fullRoute.fuelStops.length + index + 1) * 2 * 60 * 60 * 1000).toISOString()
-              })),
-              // Pickup location
-              {
-                id: 100,
-                address: tripData.pickup_location,
-                latitude: pickupCoords.latitude,
-                longitude: pickupCoords.longitude,
-                estimated_arrival: new Date(Date.now() + fullRoute.duration * 60 * 60 * 1000).toISOString(),
-                stop_type: 'Pickup',
-                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + 2
-              },
-              // Fuel/rest stops from pickup to dropoff
-              ...deliveryRoute.fuelStops.map((stop, index) => ({
-                ...stop,
-                id: index + 30,
-                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + index + 3,
-                estimated_arrival: new Date(Date.now() + (fullRoute.duration + 1 + (index + 1) * 2) * 60 * 60 * 1000).toISOString()
-              })),
-              ...deliveryRoute.restStops.map((stop, index) => ({
-                ...stop,
-                id: index + 40,
-                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + deliveryRoute.fuelStops.length + index + 3,
-                estimated_arrival: new Date(Date.now() + (fullRoute.duration + 1 + deliveryRoute.fuelStops.length + index + 1) * 2 * 60 * 60 * 1000).toISOString()
-              })),
-              // Final dropoff
-              {
-                id: 999,
-                address: tripData.dropoff_location,
-                latitude: dropoffCoords.latitude,
-                longitude: dropoffCoords.longitude,
-                estimated_arrival: new Date(Date.now() + totalDuration * 60 * 60 * 1000).toISOString(),
-                stop_type: 'Dropoff',
-                stop_order: fullRoute.fuelStops.length + fullRoute.restStops.length + deliveryRoute.fuelStops.length + deliveryRoute.restStops.length + 3
-              }
-            ].sort((a, b) => a.stop_order - b.stop_order)
-          });
-        } else {
-          // Fallback to basic calculation for complete route
-          const distanceToPick = Math.round(Math.random() * 500 + 200); // Current to pickup
-          const distanceToDeliver = Math.round(Math.random() * 800 + 300); // Pickup to dropoff
-          const totalDistance = distanceToPick + distanceToDeliver;
-          const totalDuration = Math.round(totalDistance / 58 * 10) / 10 + 1; // +1 hour for loading
-          
-          setRouteData({
-            total_distance: totalDistance,
-            estimated_duration: totalDuration,
-            route_stops: [
-              {
-                id: 1,
-                address: tripData.current_location,
-                latitude: currentCoords.latitude,
-                longitude: currentCoords.longitude,
-                estimated_arrival: new Date().toISOString(),
-                stop_type: 'Start',
-                stop_order: 1
-              },
-              {
-                id: 2,
-                address: tripData.pickup_location,
-                latitude: pickupCoords.latitude,
-                longitude: pickupCoords.longitude,
-                estimated_arrival: new Date(Date.now() + (distanceToPick / 58) * 60 * 60 * 1000).toISOString(),
-                stop_type: 'Pickup',
-                stop_order: 2
-              },
-              {
-                id: 3,
-                address: tripData.dropoff_location,
-                latitude: dropoffCoords.latitude,
-                longitude: dropoffCoords.longitude,
-                estimated_arrival: new Date(Date.now() + totalDuration * 60 * 60 * 1000).toISOString(),
-                stop_type: 'Dropoff',
-                stop_order: 3
-              }
-            ]
-          });
-        }
-        
-        setError(null);
-        setActiveStep(activeStep + 1);
-      } catch (error) {
-        console.error('Route calculation error:', error);
-        setError('Failed to calculate route. Please try again.');
-      } finally {
-        setLoading(false);
-        setRouteLoading(false);
-      }
-    } else if (activeStep === 1) {
-      setActiveStep(activeStep + 1);
-      await checkCompliance();
-    } else {
-      // Create trip
-      await createTrip();
-    }
-  };
-
-  const handleBack = () => {
-    setActiveStep(activeStep - 1);
-  };
-
-  const checkCompliance = async () => {
+  // Check HOS compliance
+  const checkCompliance = useCallback(async () => {
     setLoading(true);
     try {
-      // Mock HOS compliance check
-      const mockCompliance = {
-        compliant: tripData.current_cycle_used! < 60,
-        violations: tripData.current_cycle_used! >= 60 ? [
+      // Mock HOS compliance check with proper typing
+      const mockCompliance: ComplianceData = {
+        compliant: (tripData.current_cycle_used || 0) < 60,
+        violations: (tripData.current_cycle_used || 0) >= 60 ? [
           {
             type: '70_hour_cycle',
             severity: 'warning',
@@ -288,9 +320,15 @@ const TripPlanner: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tripData.current_cycle_used]);
 
-  const createTrip = async () => {
+  // Create trip
+  const createTrip = useCallback(async () => {
+    if (!isStep0Valid) {
+      setError('Missing required trip data');
+      return;
+    }
+
     setLoading(true);
     try {
       const tripCreateData: TripCreateData = {
@@ -319,25 +357,231 @@ const TripPlanner: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tripData, navigate, isStep0Valid]);
 
-  const renderStepContent = () => {
+  // Handle next step
+  const handleNext = useCallback(async () => {
+    if (activeStep === 0) {
+      // Validate trip details
+      if (!isStep0Valid) {
+        setError('Please fill in all required fields');
+        return;
+      }
+      
+      setLoading(true);
+      setRouteLoading(true);
+      setError(null);
+      
+      try {
+        // Geocode addresses using our service
+        const [currentCoords, pickupCoords, dropoffCoords] = await Promise.all([
+          geocodeAddress(tripData.current_location!),
+          geocodeAddress(tripData.pickup_location!),
+          geocodeAddress(tripData.dropoff_location!)
+        ]);
+        
+        if (!currentCoords || !pickupCoords || !dropoffCoords) {
+          throw new Error('Failed to geocode one or more addresses. Please check the addresses and try again.');
+        }
+        
+        // Update trip data with coordinates
+        const updatedTripData = {
+          ...tripData,
+          current_location_lat: currentCoords.latitude,
+          current_location_lng: currentCoords.longitude,
+          pickup_location_lat: pickupCoords.latitude,
+          pickup_location_lng: pickupCoords.longitude,
+          dropoff_location_lat: dropoffCoords.latitude,
+          dropoff_location_lng: dropoffCoords.longitude,
+        };
+        setTripData(updatedTripData);
+        
+        // Calculate complete route: Current Location → Pickup → Dropoff
+        const fullRoute = await getOptimizedRoute(
+          tripData.current_location!,
+          tripData.pickup_location!,
+          new Date()
+        );
+        
+        const deliveryRoute = await getOptimizedRoute(
+          tripData.pickup_location!,
+          tripData.dropoff_location!,
+          new Date(Date.now() + (fullRoute?.duration || 8) * 60 * 60 * 1000)
+        );
+        
+        if (fullRoute && deliveryRoute) {
+          // Combine both route segments
+          const totalDistance = fullRoute.distance + deliveryRoute.distance;
+          
+          // Calculate realistic driving time using truck highway speeds
+          const TRUCK_HIGHWAY_SPEED = 58; // mph - realistic average including traffic, stops
+          const LOADING_TIME = 1; // hour for pickup/loading
+          const UNLOADING_TIME = 0.5; // hour for delivery/unloading
+          
+          const baseDrivingTime = totalDistance / TRUCK_HIGHWAY_SPEED;
+          const totalDrivingTime = baseDrivingTime + LOADING_TIME + UNLOADING_TIME;
+          
+          const routeStops = [
+            // Start at current location
+            {
+              id: 1,
+              location: tripData.current_location,
+              latitude: currentCoords.latitude,
+              longitude: currentCoords.longitude,
+              estimated_arrival: new Date().toISOString(),
+              stop_type: 'Start',
+              stop_order: 1
+            },
+            // Pickup location
+            {
+              id: 100,
+              location: tripData.pickup_location,
+              latitude: pickupCoords.latitude,
+              longitude: pickupCoords.longitude,
+              estimated_arrival: new Date(Date.now() + (fullRoute.distance / TRUCK_HIGHWAY_SPEED) * 60 * 60 * 1000).toISOString(),
+              stop_type: 'Pickup',
+              stop_order: 2
+            },
+            // Final dropoff
+            {
+              id: 999,
+              location: tripData.dropoff_location,
+              latitude: dropoffCoords.latitude,
+              longitude: dropoffCoords.longitude,
+              estimated_arrival: new Date(Date.now() + totalDrivingTime * 60 * 60 * 1000).toISOString(),
+              stop_type: 'Dropoff',
+              stop_order: 3
+            }
+          ];
+
+          // Calculate fuel and rest stops
+          const fuelStops = calculateFuelStops(totalDistance, routeStops);
+          const restStops = calculateRestStops(totalDrivingTime, routeStops);
+          
+          // Calculate additional time for stops (but don't add rest periods to driving time)
+          const fuelStopTime = fuelStops.length * 0.5; // 30 minutes per fuel stop
+          const activeTime = totalDrivingTime + fuelStopTime; // Only active driving + fuel stops
+          
+          setRouteData({
+            total_distance: totalDistance,
+            estimated_duration: activeTime, // This is active time only
+            route_stops: routeStops,
+            fuelStops: fuelStops,
+            restStops: restStops
+          });
+        } else {
+          // Fallback to basic calculation
+          const totalDistance = Math.round(Math.random() * 800 + 300);
+          
+          // Use realistic truck speeds for fallback calculation
+          const TRUCK_HIGHWAY_SPEED = 58; // mph
+          const LOADING_TIME = 1; // hour for pickup/loading  
+          const UNLOADING_TIME = 0.5; // hour for delivery/unloading
+          
+          const baseDrivingTime = totalDistance / TRUCK_HIGHWAY_SPEED;
+          const totalDrivingTime = baseDrivingTime + LOADING_TIME + UNLOADING_TIME;
+          
+          const routeStops = [
+            {
+              id: 1,
+              location: tripData.current_location,
+              latitude: currentCoords.latitude,
+              longitude: currentCoords.longitude,
+              estimated_arrival: new Date().toISOString(),
+              stop_type: 'Start',
+              stop_order: 1
+            },
+            {
+              id: 2,
+              location: tripData.pickup_location,
+              latitude: pickupCoords.latitude,
+              longitude: pickupCoords.longitude,
+              estimated_arrival: new Date(Date.now() + (totalDistance * 0.6 / TRUCK_HIGHWAY_SPEED) * 60 * 60 * 1000).toISOString(),
+              stop_type: 'Pickup',
+              stop_order: 2
+            },
+            {
+              id: 3,
+              location: tripData.dropoff_location,
+              latitude: dropoffCoords.latitude,
+              longitude: dropoffCoords.longitude,
+              estimated_arrival: new Date(Date.now() + totalDrivingTime * 60 * 60 * 1000).toISOString(),
+              stop_type: 'Dropoff',
+              stop_order: 3
+            }
+          ];
+
+          // Calculate fuel and rest stops for fallback route
+          const fuelStops = calculateFuelStops(totalDistance, routeStops);
+          const restStops = calculateRestStops(totalDrivingTime, routeStops);
+          
+          // Calculate additional time for stops (but don't add rest periods to driving time)
+          const fuelStopTime = fuelStops.length * 0.5; // 30 minutes per fuel stop
+          const activeTime = totalDrivingTime + fuelStopTime; // Only active driving + fuel stops
+          
+          setRouteData({
+            total_distance: totalDistance,
+            estimated_duration: activeTime, // This is active time only
+            route_stops: routeStops,
+            fuelStops: fuelStops,
+            restStops: restStops
+          });
+        }
+        
+        setError(null);
+        setActiveStep(activeStep + 1);
+      } catch (error) {
+        console.error('Route calculation error:', error);
+        setError(error instanceof Error ? error.message : 'Failed to calculate route. Please try again.');
+      } finally {
+        setLoading(false);
+        setRouteLoading(false);
+      }
+    } else if (activeStep === 1) {
+      setActiveStep(activeStep + 1);
+      await checkCompliance();
+    } else {
+      // Create trip
+      await createTrip();
+    }
+  }, [activeStep, tripData, isStep0Valid, checkCompliance, createTrip, calculateFuelStops, calculateRestStops]);
+
+  const handleBack = useCallback(() => {
+    setActiveStep(prev => prev - 1);
+  }, []);
+
+  // Load drivers on component mount
+  useEffect(() => {
+    fetchDrivers();
+  }, [fetchDrivers]);
+
+  // Step content renderer
+  const renderStepContent = useCallback(() => {
     switch (activeStep) {
       case 0:
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <FormControl fullWidth>
+            <FormControl fullWidth disabled={driversLoading}>
               <InputLabel>Select Driver</InputLabel>
               <Select
                 value={tripData.driver_id || ''}
                 onChange={(e) => setTripData({ ...tripData, driver_id: e.target.value as number })}
                 label="Select Driver"
               >
-                {drivers.map((driver) => (
-                  <MenuItem key={driver.id} value={driver.id}>
-                    {driver.name} - {driver.license_number}
+                {driversLoading ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={20} sx={{ mr: 1 }} />
+                    Loading drivers...
                   </MenuItem>
-                ))}
+                ) : drivers.length === 0 ? (
+                  <MenuItem disabled>No drivers available</MenuItem>
+                ) : (
+                  drivers.map((driver) => (
+                    <MenuItem key={driver.id} value={driver.id}>
+                      {driver.name} - {driver.license_number}
+                    </MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
 
@@ -406,58 +650,141 @@ const TripPlanner: React.FC = () => {
                     <Route sx={{ mr: 1 }} />
                     Route Summary (Real-time Calculation)
                   </Typography>
-                  <Box sx={{ display: 'flex', gap: 4 }}>
+                  <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     <Box>
                       <Typography variant="body2">Total Distance</Typography>
                       <Typography variant="h5">{routeData.total_distance} miles</Typography>
                     </Box>
                     <Box>
-                      <Typography variant="body2">Estimated Duration</Typography>
-                      <Typography variant="h5">{routeData.estimated_duration} hours</Typography>
+                      <Typography variant="body2">Active Driving Time</Typography>
+                      <Typography variant="h5">{routeData.estimated_duration.toFixed(1)} hours</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="body2">Average Speed</Typography>
+                      <Typography variant="h5">{Math.round(routeData.total_distance / routeData.estimated_duration)} mph</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="body2">Fuel Stops</Typography>
+                      <Typography variant="h5">{routeData.fuelStops?.length || 0}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="body2">Rest Stops</Typography>
+                      <Typography variant="h5">{routeData.restStops?.length || 0}</Typography>
                     </Box>
                   </Box>
+                  {routeData.restStops && routeData.restStops.length > 0 && (
+                    <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                        Total Elapsed Time: {(routeData.estimated_duration + routeData.restStops.reduce((total, stop) => total + stop.break_duration, 0)).toFixed(1)} hours
+                      </Typography>
+                      <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                        (Includes {routeData.restStops.reduce((total, stop) => total + stop.break_duration, 0)} hours of mandatory rest)
+                      </Typography>
+                    </Box>
+                  )}
                   <Typography variant="body2" sx={{ mt: 2, opacity: 0.9 }}>
-                    📍 Route calculated using OpenStreetMap data with truck-specific routing
+                    📍 Route calculated using OpenStreetMap data with HOS compliance
                   </Typography>
                 </Paper>
 
-                <Typography variant="h6">Route Stops ({routeData.route_stops?.length || 0} stops)</Typography>
-                {routeData.route_stops?.map((stop: any, index: number) => (
+                <Typography variant="h6">Main Route Stops ({routeData.route_stops?.length || 0} stops)</Typography>
+                {routeData.route_stops?.map((stop: RouteStop) => (
                   <Card key={stop.id} variant="outlined">
                     <CardContent sx={{ display: 'flex', alignItems: 'center', py: 2 }}>
                       <Box sx={{ mr: 2 }}>
                         {stop.stop_type === 'Start' && <Navigation color="action" />}
-                        {stop.stop_type === 'Fuel' && <LocationOn color="warning" />}
-                        {stop.stop_type === 'Rest' && <LocationOn color="info" />}
+                        {stop.stop_type === 'Pickup' && <LocationOn color="primary" />}
                         {stop.stop_type === 'Dropoff' && <LocationOn color="secondary" />}
                       </Box>
                       <Box sx={{ flexGrow: 1 }}>
                         <Typography variant="subtitle1">
-                          {stop.stop_type} - {stop.address}
+                          {stop.stop_type} - {stop.location}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
                           Arrival: {new Date(stop.estimated_arrival).toLocaleString()}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Stop #{stop.stop_order} • {stop.latitude.toFixed(4)}, {stop.longitude.toFixed(4)}
                         </Typography>
                       </Box>
                       <Chip
                         label={stop.stop_type.toUpperCase()}
                         size="small"
                         color={
-                          stop.stop_type === 'Fuel' ? 'warning' : 
-                          stop.stop_type === 'Rest' ? 'info' :
                           stop.stop_type === 'Start' ? 'success' :
+                          stop.stop_type === 'Pickup' ? 'primary' :
                           'secondary'
                         }
                       />
                     </CardContent>
                   </Card>
-                )) || (
-                  <Typography variant="body2" color="text.secondary">
-                    No stops calculated yet.
-                  </Typography>
+                ))}
+
+                {/* Fuel Stops Section */}
+                {routeData.fuelStops && routeData.fuelStops.length > 0 && (
+                  <>
+                    <Typography variant="h6" sx={{ mt: 3 }}>
+                      Fuel Stops ({routeData.fuelStops.length} stops)
+                    </Typography>
+                    {routeData.fuelStops.map((fuelStop: FuelStop) => (
+                      <Card key={fuelStop.id} variant="outlined" sx={{ bgcolor: 'orange.50' }}>
+                        <CardContent sx={{ display: 'flex', alignItems: 'center', py: 2 }}>
+                          <Box sx={{ mr: 2 }}>
+                            <LocalGasStation color="warning" />
+                          </Box>
+                          <Box sx={{ flexGrow: 1 }}>
+                            <Typography variant="subtitle1">
+                              {fuelStop.station_name || 'Fuel Stop'} - {fuelStop.location}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Arrival: {new Date(fuelStop.estimated_arrival).toLocaleString()}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Fuel: {fuelStop.fuel_needed.toFixed(1)} gal • Est. Cost: ${fuelStop.cost_estimate.toFixed(2)}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label="FUEL STOP"
+                            size="small"
+                            color="warning"
+                            icon={<LocalGasStation />}
+                          />
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </>
+                )}
+
+                {/* Rest Stops Section */}
+                {routeData.restStops && routeData.restStops.length > 0 && (
+                  <>
+                    <Typography variant="h6" sx={{ mt: 3 }}>
+                      Mandatory Rest Stops ({routeData.restStops.length} stops)
+                    </Typography>
+                    {routeData.restStops.map((restStop: RestStop) => (
+                      <Card key={restStop.id} variant="outlined" sx={{ bgcolor: 'blue.50' }}>
+                        <CardContent sx={{ display: 'flex', alignItems: 'center', py: 2 }}>
+                          <Box sx={{ mr: 2 }}>
+                            <Hotel color="info" />
+                          </Box>
+                          <Box sx={{ flexGrow: 1 }}>
+                            <Typography variant="subtitle1">
+                              {restStop.facility_type || 'Rest Area'} - {restStop.location}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Arrival: {new Date(restStop.estimated_arrival).toLocaleString()}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Break Duration: {restStop.break_duration}h • Type: {restStop.break_type.replace('_', ' ').toUpperCase()}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label={restStop.break_type === 'sleeper_berth' ? 'SLEEPER BERTH' : 'REST BREAK'}
+                            size="small"
+                            color="info"
+                            icon={<Schedule />}
+                          />
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </>
                 )}
               </Box>
             ) : (
@@ -515,7 +842,7 @@ const TripPlanner: React.FC = () => {
                     <Typography variant="h6" sx={{ mb: 2 }}>
                       Violations
                     </Typography>
-                    {complianceData.violations.map((violation: any, index: number) => (
+                    {complianceData.violations.map((violation, index) => (
                       <Alert key={index} severity="error" sx={{ mb: 1 }}>
                         {violation.description}
                       </Alert>
@@ -530,7 +857,7 @@ const TripPlanner: React.FC = () => {
       default:
         return null;
     }
-  };
+  }, [activeStep, tripData, drivers, driversLoading, routeLoading, routeData, complianceData]);
 
   return (
     <Container maxWidth="md">
@@ -554,7 +881,15 @@ const TripPlanner: React.FC = () => {
           </Stepper>
 
           {error && (
-            <Alert severity="error" sx={{ mb: 3 }}>
+            <Alert 
+              severity="error" 
+              sx={{ mb: 3 }}
+              action={
+                <Button color="inherit" size="small" onClick={() => setError(null)}>
+                  Dismiss
+                </Button>
+              }
+            >
               {error}
             </Alert>
           )}
@@ -572,9 +907,18 @@ const TripPlanner: React.FC = () => {
             <Button
               onClick={handleNext}
               variant="contained"
-              disabled={loading}
+              disabled={loading || (activeStep === 0 && !isStep0Valid)}
             >
-              {loading ? 'Processing...' : activeStep === steps.length - 1 ? 'Create Trip' : 'Next'}
+              {loading ? (
+                <>
+                  <CircularProgress size={20} sx={{ mr: 1 }} />
+                  Processing...
+                </>
+              ) : activeStep === steps.length - 1 ? (
+                'Create Trip'
+              ) : (
+                'Next'
+              )}
             </Button>
           </Box>
         </CardContent>
